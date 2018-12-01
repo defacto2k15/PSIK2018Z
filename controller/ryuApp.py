@@ -12,6 +12,7 @@ from ryu.lib.mac import haddr_to_bin
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
+from ryu.topology import event
 
 
 class SimpleSwitch(app_manager.RyuApp):
@@ -50,7 +51,7 @@ class SimpleSwitch(app_manager.RyuApp):
         dst = eth.dst
         src = eth.src
 
-        dpid = datapath.id
+        dpid = datapath.id #datapath.id to identyfikator kontrollera
         self.mac_to_port.setdefault(dpid, {})
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, msg.in_port)
@@ -93,3 +94,14 @@ class SimpleSwitch(app_manager.RyuApp):
             self.logger.info("port modified %s", port_no)
         else:
             self.logger.info("Illeagal port state %s %s", port_no, reason)
+
+    @set_ev_cls(event.EventSwitchEnter)
+    def switch_enter_handler(self, ev):
+
+        switch = ev.switch.dp.id
+        self.logger.info("Entered %s", switch)
+
+    @set_ev_cls(event.EventSwitchLeave, MAIN_DISPATCHER)
+    def switch_leave_handler(self, ev):
+        switch = ev.switch.dp.id
+        self.logger.info("Left %s", switch)
