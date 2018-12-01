@@ -85,6 +85,14 @@ def run():
     # h1 = net.get('h1')
     # h1.sendCmd('python testServer.py 10.0.1.1') To mi nie dziala
 
+    # A to mi działa... oczywiście, gdy nie ma SimpleHTTPServer, który zajmuje sockety
+    # h1 = net.get('h1')
+    # h1.sendCmd('python testServer.py 10.0.1.1')
+    # klient1 = net.get('klient1')
+    # klient1.sendCmd('python testClient.py 10.0.1.1 1')
+    # print('waiting for klient1 to send requests. Test results will be saved in \'log_1.txt\' file')
+    # klient1.waitOutput()
+    
     h1 = net.get('h1')
     h1.sendCmd('python -m SimpleHTTPServer 80 &') # To mi dziala
 
