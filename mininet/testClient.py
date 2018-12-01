@@ -6,7 +6,7 @@ import time
 
 http_server = sys.argv[1]
 client_no = sys.argv[2]
-number_of_tests = 2000
+number_of_tests = 20
 log_name='log_{0}.txt'.format(client_no)
 log = open(log_name,'a')
 
