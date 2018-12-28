@@ -48,37 +48,37 @@ def configureNet(net):
     h1, h2, s3, s2, s1,  k1, k2 = net.get('h1', 'h2',  's3', 's2', 's1', 'klient1', 'klient2')
 
     # h2.intf(intf='h2-eth-s1').setIP('10.0.2.1/8')
-    # h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:10')
+    # h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:03')
 
     # h1.intf(intf='h1-eth-s2').setIP('10.0.1.2/8')
     # h1.intf(intf='h1-eth-s2').setMAC('00:00:00:00:00:02')
 
     h2.intf(intf='h2-eth-s2').setIP('10.0.2.2/8')
-    h2.intf(intf='h2-eth-s2').setMAC('00:00:00:00:00:22')
+    h2.intf(intf='h2-eth-s2').setMAC('00:00:00:00:00:04')
 
     h1.intf(intf='h1-eth-s1').setIP('10.0.1.1/8')
-    h1.intf(intf='h1-eth-s1').setMAC('00:00:00:00:00:25')
+    h1.intf(intf='h1-eth-s1').setMAC('00:00:00:00:00:01')
 
-    s3.intf(intf='s3-eth1').setMAC('00:00:00:00:00:05')
-    s3.intf(intf='s3-eth3').setMAC('00:00:00:00:00:08')
+    s3.intf(intf='s3-eth1').setMAC('00:00:00:00:00:14')
+    s3.intf(intf='s3-eth3').setMAC('00:00:00:00:00:16')
 
-    s2.intf(intf='s2-eth3').setMAC('00:00:00:00:00:04')
-    s1.intf(intf='s1-eth3').setMAC('00:00:00:00:00:09')
+    s2.intf(intf='s2-eth3').setMAC('00:00:00:00:00:15')
+    s1.intf(intf='s1-eth3').setMAC('00:00:00:00:00:13')
 
-    s3.intf(intf='s3-eth-k1').setMAC('00:00:00:00:00:06')
-    s3.intf(intf='s3-eth-k2').setMAC('00:00:00:00:00:03')
+    s3.intf(intf='s3-eth-k1').setMAC('00:00:00:00:00:09')
+    s3.intf(intf='s3-eth-k2').setMAC('00:00:00:00:00:07')
 
-    # s2.intf(intf='s2-eth-h1').setMAC('00:00:00:00:00:03')
+    # s2.intf(intf='s2-eth-h1').setMAC('00:00:00:00:00:07')
     s2.intf(intf='s2-eth-h2').setMAC('00:00:00:00:00:02')
 
-    # s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:21')
-    s1.intf(intf='s1-eth-h1').setMAC('00:00:00:00:00:23')
+    # s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:06')
+    s1.intf(intf='s1-eth-h1').setMAC('00:00:00:00:00:05')
 
     k1.intf(intf='k1-eth-s3').setIP('10.0.3.1/8')
     k1.intf(intf='k1-eth-s3').setMAC('00:00:00:00:00:11')
 
     k2.intf(intf='k2-eth-s3').setIP('10.0.3.2/8')
-    k2.intf(intf='k2-eth-s3').setMAC('00:00:00:00:00:14')
+    k2.intf(intf='k2-eth-s3').setMAC('00:00:00:00:00:12')
 
 def run():
     myTopo = SimpleTopo()

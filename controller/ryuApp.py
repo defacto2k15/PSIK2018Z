@@ -44,21 +44,21 @@ PORT_S1_H2 = 2
 PORT_S1_S3 = 3
 PORT_S1_H1 = 1
 
-MACADDR_S2_S3 = "00:00:00:00:00:04"
-MACADDR_S2_H1 = "00:00:00:00:00:03"
+MACADDR_S2_S3 = "00:00:00:00:00:15"
+MACADDR_S2_H1 = "00:00:00:00:00:07"
 MACADDR_S2_H2 = "00:00:00:00:00:02"
 
-MACADDR_S3_S2 = "00:00:00:00:00:05"
-MACADDR_H1_S2 = "00:00:00:00:00:01"
-MACADDR_H2_S2 = "00:00:00:00:00:22"
+MACADDR_S3_S2 = "00:00:00:00:00:14"
+MACADDR_H1_S2 = "00:00:00:00:01:01"
+MACADDR_H2_S2 = "00:00:00:00:00:04"
 
-MACADDR_S1_H2 = "00:00:00:00:00:21"
-MACADDR_S1_H1 = "00:00:00:00:00:23"
-MACADDR_H2_S1 = "00:00:00:00:00:10"
+MACADDR_S1_H2 = "00:00:00:00:00:06"
+MACADDR_S1_H1 = "00:00:00:00:00:05"
+MACADDR_H2_S1 = "00:00:00:00:00:03"
 
-MACADDR_S1_S3 = "00:00:00:00:00:09"
-MACADDR_S3_S1 = "00:00:00:00:00:08"
-MACADDR_H1_S1 = "00:00:00:00:00:25"
+MACADDR_S1_S3 = "00:00:00:00:00:13"
+MACADDR_S3_S1 = "00:00:00:00:00:16"
+MACADDR_H1_S1 = "00:00:00:00:00:01"
 
 
 INNER_PORTS = [1,3]
@@ -66,8 +66,8 @@ INNER_PORTS = [1,3]
 global Switch_link
 Switch_link = namedtuple("Switch_link", ["port_id", "switch_port_mac", "other_port_mac"])
 
-INNER_CONECTIONS = [Switch_link(port_id=1, switch_port_mac="00:00:00:00:00:05", other_port_mac="00:00:00:00:00:04"),
-                    Switch_link(port_id=3, switch_port_mac="00:00:00:00:00:08", other_port_mac="00:00:00:00:00:09")]
+INNER_CONECTIONS = [Switch_link(port_id=1, switch_port_mac="00:00:00:00:00:14", other_port_mac="00:00:00:00:00:15"),
+                    Switch_link(port_id=3, switch_port_mac="00:00:00:00:00:16", other_port_mac="00:00:00:00:00:13")]
 
 
 ROUTER_PORT1 = 1
@@ -114,16 +114,6 @@ class SimpleSwitch(app_manager.RyuApp):
             priority=ofproto.OFP_DEFAULT_PRIORITY,
             flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
         datapath.send_msg(mod)
-
-    def add_flow2(self, datapath, match, actions, priority=0, hard_timeout=0):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-
-        mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match, actions=actions,
-                                hard_timeout=hard_timeout, cookie=0, command=ofproto.OFPFC_ADD)
-        datapath.send_msg(mod)
-        self.logger.debug("add_flow:" + str(mod))
-
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
