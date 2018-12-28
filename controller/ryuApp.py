@@ -61,6 +61,8 @@ MACADDR_S3_S1 = "00:00:00:00:00:16"
 MACADDR_H1_S1 = "00:00:00:00:00:01"
 
 
+OUTER_MAC = "11:11:11:11:11:11"
+
 INNER_PORTS = [3,4]
 
 global Switch_link
@@ -87,6 +89,8 @@ class SimpleSwitch(app_manager.RyuApp):
     Ipv4_addr = namedtuple("Ipv4_addr", ["addr", "port", "mac", "switch_port"])
     global Switch_port
     Switch_port = namedtuple("SwitchPort", ["port_mac", "port_id"])
+    global Switch_out_port
+    Switch_out_port = namedtuple("Switch_out_port", ["out_mac", "port_id"])
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch, self).__init__(*args, **kwargs)
@@ -98,6 +102,9 @@ class SimpleSwitch(app_manager.RyuApp):
         global ports
         ports = range(50000, 60000)
 
+        global ip_to_out_port
+        ip_to_out_port = {}
+
     def add_flow(self, datapath, in_port, dst, src, actions):
         ofproto = datapath.ofproto
 
@@ -105,6 +112,22 @@ class SimpleSwitch(app_manager.RyuApp):
             eth_type=0x0800,
             in_port=in_port,
             eth_dst=dst, eth_src=src)
+
+        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+
+        mod = datapath.ofproto_parser.OFPFlowMod(
+            datapath=datapath, match=match, cookie=0,
+            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
+            priority=ofproto.OFP_DEFAULT_PRIORITY,
+            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
+        datapath.send_msg(mod)
+
+    def add_flow_no_mac(self, datapath, in_port, actions):
+        ofproto = datapath.ofproto
+
+        match = datapath.ofproto_parser.OFPMatch(
+            eth_type=0x0800,
+            in_port=in_port)
 
         instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
 
@@ -125,7 +148,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
         if datapath.id == SWITCH3_DPID:
             if etherFrame.ethertype == ether.ETH_TYPE_ARP:
-                self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort, etherFrame.src, etherFrame.dst)
+                self.logger.debug("ARP Switch3: Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort, etherFrame.src, etherFrame.dst)
                 self.receive_arp(datapath, packet, etherFrame, inPort)
                 return 0
             elif etherFrame.ethertype == ether.ETH_TYPE_IP:
@@ -142,45 +165,12 @@ class SimpleSwitch(app_manager.RyuApp):
             else:
                 self.logger.debug("Drop packet")
                 return 1
-        elif datapath.id == SWITCH2_DPID or datapath.id == SWITCH1_DPID:
-            self.logger.info("SWITCH2 OR SWITCH1: packet in from switch2 or switch1")
-            ofproto = datapath.ofproto
-
-            pkt =  Packet(msg.data)
-            eth = pkt.get_protocol(ethernet.ethernet)
-
-            dst = eth.dst
-            src = eth.src
-
-            dpid = datapath.id  # datapath.id to identyfikator kontrollera
-            self.mac_to_port.setdefault(dpid, {})
-
-            self.logger.info("packet in %s %s %s %s", dpid, src, dst, msg.match['in_port'])
-
-            # learn a mac address to avoid FLOOD next time.
-            self.mac_to_port[dpid][src] = msg.match['in_port']
-
-            if dst in self.mac_to_port[dpid]:
-                out_port = self.mac_to_port[dpid][dst]
-            else:
-                out_port = ofproto.OFPP_FLOOD
-
-            actions = [datapath.ofproto_parser.OFPActionOutput(out_port)]
-
-            # install a flow to avoid packet_in next time
-            if out_port != ofproto.OFPP_FLOOD:
-                self.add_flow(datapath, msg.match['in_port'], dst, src, actions)
-
-            data = None
-            if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-                data = msg.data
-
-            out = datapath.ofproto_parser.OFPPacketOut(
-                datapath=datapath, buffer_id=msg.buffer_id, in_port=msg.match['in_port'],
-                actions=actions, data=data)
-            datapath.send_msg(out)
         else:
-            self.logger.info("Error: message from unexpected switch of datapath %s", datapath.id)
+            if etherFrame.ethertype == ether.ETH_TYPE_ARP:
+                self.logger.debug("ARP Switch1/2 Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort, etherFrame.src, etherFrame.dst)
+                self.receive_arp(datapath, packet, etherFrame, inPort)
+            else:
+                self.logger.info("Error: message from unexpected switch of datapath %s", datapath.id)
 
 
     def reply_icmp(self, icmp_header, ipv4_header, ethernet_header, in_port, datapath):
@@ -236,32 +226,13 @@ class SimpleSwitch(app_manager.RyuApp):
         self.send_packet_out(datapath, in_port, datapath.ofproto.OFPP_IN_PORT,
                              pkt.data, data_str=str(pkt))
 
-
     def receive_arp(self, datapath, packet, etherFrame, inPort):
         arpPacket = packet.get_protocol(arp)
 
         if arpPacket.opcode == 1:
-            arp_dstIp = arpPacket.dst_ip
-            self.reply_arp(datapath, etherFrame, arpPacket, arp_dstIp, inPort)
+            self.send_arp(datapath, 2, OUTER_MAC, arpPacket.dst_ip, etherFrame.src, arpPacket.src_ip, inPort)
         elif arpPacket.opcode == 2:
             pass
-
-
-    def reply_arp(self, datapath, etherFrame, arpPacket, arp_dstIp, inPort):
-        dstIp = arpPacket.src_ip
-        srcIp = arpPacket.dst_ip
-        dstMac = etherFrame.src
-        our_mac = datapath.ports[inPort].hw_addr
-        if inPort in OUTER_PORTS and arp_dstIp == OUTER_IP:
-            srcMac = our_mac
-            outPort = inPort
-        elif inPort in  INNER_PORTS and srcIp == OUTER_IP:
-            srcMac = our_mac
-            outPort = inPort
-        else:
-            self.logger.debug("unknown arp requst received !")
-
-        self.send_arp(datapath, 2, srcMac, srcIp, dstMac, dstIp, outPort)
 
     def send_arp(self, datapath, opcode, srcMac, srcIp, dstMac, dstIp, outPort):
         targetMac = dstMac
@@ -286,29 +257,16 @@ class SimpleSwitch(app_manager.RyuApp):
     def pass_tcp(self, message, tcp_header, ip_header, ethernet_header):
         datapath = message.datapath
         in_port = message.match['in_port']
-        tcp_src_port = tcp_header.src_port
         parser = datapath.ofproto_parser
 
         if in_port in OUTER_PORTS: #from outer space
-            ipv4_addr = Ipv4_addr(addr=ip_header.src, port=tcp_src_port, mac=ethernet_header.src,
-                                  switch_port=Switch_port(port_mac=ethernet_header.dst, port_id=in_port))
-            if ipv4_addr in maps:
-                port = maps[ipv4_addr]
-            else:
-                port = ports.pop()
-                maps[ipv4_addr] = port
-                maps[port] = ipv4_addr
-                print "Created mapping: %s %s to %s %s" % (ipv4_addr.addr, ipv4_addr.port, OUTER_IP, port)
+            ip_addr = ip_header.src
+            ip_to_out_port[ip_addr] = Switch_out_port(port_id=in_port, out_mac=ethernet_header.src)
 
-            #TODO: lepszy wybor sciezki
             #inner_path = INNER_CONECTIONS[port % 2]
             inner_path = INNER_CONECTIONS[0]
 
             actions = [
-                parser.OFPActionSetField(eth_src=inner_path.switch_port_mac),
-                parser.OFPActionSetField( eth_dst=inner_path.other_port_mac, ),
-                parser.OFPActionSetField(ipv4_src=OUTER_IP),
-                parser.OFPActionSetField(tcp_src=port),
                 parser.OFPActionOutput(inner_path.port_id)
             ]
             data = None
@@ -319,19 +277,16 @@ class SimpleSwitch(app_manager.RyuApp):
                                       in_port=in_port, actions=actions)
             datapath.send_msg(out)
         else:
-            dst_port = tcp_header.dst_port
-            if dst_port in maps:
-                ipv4_addr = maps[dst_port]
+            dst_ip_addr = ip_header.dst
+            if dst_ip_addr in ip_to_out_port:
+                out_switch_port = ip_to_out_port[dst_ip_addr]
             else:
                 print "Dropping msg as dst is not understood"
                 return
             actions = [
-                parser.OFPActionSetField(eth_src=ipv4_addr.switch_port.port_mac),
-                parser.OFPActionSetField( eth_dst=ipv4_addr.mac),
+                parser.OFPActionSetField(eth_dst=out_switch_port.out_mac),
                 parser.OFPActionSetField(ipv4_src=OUTER_IP),
-                parser.OFPActionSetField(ipv4_dst=ipv4_addr.addr),
-                parser.OFPActionSetField(tcp_dst=ipv4_addr.port),
-                parser.OFPActionOutput(ipv4_addr.switch_port.port_id)
+                parser.OFPActionOutput(out_switch_port.port_id)
             ]
 
             data = None
@@ -396,22 +351,33 @@ class SimpleSwitch(app_manager.RyuApp):
             #datapath.send_msg(req)
 
             actions = [
-                parser.OFPActionSetField(eth_src=MACADDR_S2_H2),
                 parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
                 parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
                 parser.OFPActionOutput(PORT_S2_H2)
             ]
-            self.add_flow(datapath, PORT_S2_S3, MACADDR_S2_S3, MACADDR_S3_S2, actions )
+            self.add_flow_no_mac(datapath, PORT_S2_S3, actions)
+
+            actions2 = [
+                parser.OFPActionOutput(PORT_S2_S3)
+            ]
+            self.add_flow_no_mac(datapath, PORT_S2_H1, actions2)
+            self.add_flow_no_mac(datapath, PORT_S2_H2, actions2)
+
         elif datapath.id == SWITCH1_DPID:
             self.logger.info("Proactively pushing rules to switch 1");
             parser = datapath.ofproto_parser
             actions = [
-                parser.OFPActionSetField(eth_src=MACADDR_S1_H1),
                 parser.OFPActionSetField(eth_dst=MACADDR_H1_S1),
                 parser.OFPActionSetField(ipv4_dst=HOST_H1_S1_IP),
                 parser.OFPActionOutput(PORT_S1_H1)
             ]
-            self.add_flow(datapath, PORT_S1_S3, MACADDR_S1_S3, MACADDR_S3_S1, actions )
+            self.add_flow_no_mac(datapath, PORT_S1_S3, actions )
+
+            actions2 = [
+                parser.OFPActionOutput(PORT_S1_S3)
+            ]
+            self.add_flow_no_mac(datapath, PORT_S1_H1, actions2)
+            self.add_flow_no_mac(datapath, PORT_S1_H2, actions2)
 
     @set_ev_cls(event.EventSwitchLeave, MAIN_DISPATCHER)
     def switch_leave_handler(self, ev):
