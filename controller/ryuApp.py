@@ -46,10 +46,10 @@ PORT_S1_S3 = 3
 
 MACADDR_S2_S3 = "00:00:00:00:00:13"
 MACADDR_S2_H1 = "00:00:00:00:00:07"
-MACADDR_S2_H2 = "00:00:00:00:00:02"
+MACADDR_S2_H2 = "00:00:00:00:00:08"
 
 MACADDR_S3_S2 = "00:00:00:00:00:14"
-MACADDR_H1_S2 = "00:00:00:00:01:01"
+MACADDR_H1_S2 = "00:00:00:00:00:02"
 MACADDR_H2_S2 = "00:00:00:00:00:04"
 
 MACADDR_S1_H2 = "00:00:00:00:00:06"
@@ -65,11 +65,8 @@ OUTER_MAC = "11:11:11:11:11:11"
 
 INNER_PORTS = [3,4]
 
-global Switch_link
-Switch_link = namedtuple("Switch_link", ["port_id", "switch_port_mac", "other_port_mac"])
 
-INNER_CONECTIONS = [Switch_link(port_id=3, switch_port_mac=MACADDR_S3_S1, other_port_mac=MACADDR_S1_S3),
-                    Switch_link(port_id=4, switch_port_mac=MACADDR_S3_S2, other_port_mac=MACADDR_S2_S3)]
+INNER_CONECTIONS = [3,4]
 
 
 ROUTER_PORT1 = 1
@@ -263,11 +260,11 @@ class SimpleSwitch(app_manager.RyuApp):
             ip_addr = ip_header.src
             ip_to_out_port[ip_addr] = Switch_out_port(port_id=in_port, out_mac=ethernet_header.src)
 
-            #inner_path = INNER_CONECTIONS[port % 2]
-            inner_path = INNER_CONECTIONS[0]
+            #inner_port_id = INNER_CONECTIONS[port % 2]
+            inner_port_id = INNER_CONECTIONS[0]
 
             actions = [
-                parser.OFPActionOutput(inner_path.port_id)
+                parser.OFPActionOutput(inner_port_id)
             ]
             data = None
             # Check the buffer_id and if needed pass the whole message down

@@ -69,7 +69,7 @@ def configureNet(net):
     s3.intf(intf='s3-eth-k2').setMAC('00:00:00:00:00:07')
 
     # s2.intf(intf='s2-eth-h1').setMAC('00:00:00:00:00:07')
-    s2.intf(intf='s2-eth-h2').setMAC('00:00:00:00:00:02')
+    s2.intf(intf='s2-eth-h2').setMAC('00:00:00:00:00:08')
 
     # s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:06')
     s1.intf(intf='s1-eth-h1').setMAC('00:00:00:00:00:05')
