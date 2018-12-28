@@ -2,7 +2,6 @@
 An OpenFlow 1.0 L2 learning switch implementation.
 """
 
-
 from collections import namedtuple
 
 from ryu.base import app_manager
@@ -60,25 +59,23 @@ MACADDR_S1_S3 = "00:00:00:00:00:15"
 MACADDR_S3_S1 = "00:00:00:00:00:16"
 MACADDR_H1_S1 = "00:00:00:00:00:01"
 
-
 OUTER_MAC = "11:11:11:11:11:11"
 
-INNER_PORTS = [3,4]
+PORT_S3_S1 = 3
+PORT_S3_S2 = 4
 
-
-INNER_CONECTIONS = [3,4]
-
+INNER_CONECTIONS = [PORT_S3_S1, PORT_S3_S2]
 
 ROUTER_PORT1 = 1
 ROUTER_PORT2 = 2
 UINT32_MAX = 0xffffffff
-
 
 ETHERNET = ethernet.ethernet.__name__
 IPV4 = ipv4.ipv4.__name__
 ICMP = icmp.icmp.__name__
 
 DEFAULT_TTL = 64
+
 
 class SimpleSwitch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -119,6 +116,43 @@ class SimpleSwitch(app_manager.RyuApp):
             flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
         datapath.send_msg(mod)
 
+    # todo remove code duplication
+    def add_src_ip_flow(self, datapath, in_port, actions, ip_proto, src_ip):
+        ofproto = datapath.ofproto
+
+        match = datapath.ofproto_parser.OFPMatch(
+            eth_type=0x0800,
+            ip_proto=ip_proto,
+            ipv4_src=src_ip,
+            in_port=in_port)
+
+        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+
+        mod = datapath.ofproto_parser.OFPFlowMod(
+            datapath=datapath, match=match, cookie=0,
+            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
+            priority=ofproto.OFP_DEFAULT_PRIORITY,
+            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
+        datapath.send_msg(mod)
+
+    def add_dst_ip_flow(self, datapath, in_port, actions, ip_proto, dst_ip):
+        ofproto = datapath.ofproto
+
+        match = datapath.ofproto_parser.OFPMatch(
+            eth_type=0x0800,
+            ip_proto=ip_proto,
+            ipv4_dst=dst_ip,
+            in_port=in_port)
+
+        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+
+        mod = datapath.ofproto_parser.OFPFlowMod(
+            datapath=datapath, match=match, cookie=0,
+            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
+            priority=ofproto.OFP_DEFAULT_PRIORITY,
+            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
+        datapath.send_msg(mod)
+
     def add_flow_no_mac(self, datapath, in_port, actions):
         ofproto = datapath.ofproto
 
@@ -145,40 +179,43 @@ class SimpleSwitch(app_manager.RyuApp):
 
         if datapath.id == SWITCH3_DPID:
             if etherFrame.ethertype == ether.ETH_TYPE_ARP:
-                self.logger.debug("ARP Switch3: Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort, etherFrame.src, etherFrame.dst)
+                self.logger.debug("ARP Switch3: Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort,
+                                  etherFrame.src, etherFrame.dst)
                 self.receive_arp(datapath, packet, etherFrame, inPort)
                 return 0
             elif etherFrame.ethertype == ether.ETH_TYPE_IP:
                 ip_packet = packet.get_protocol(ipv4.ipv4)
-                self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s IP ISrc %s IDst %s Proto %s", datapath.id, inPort, etherFrame.src,
+                self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s IP ISrc %s IDst %s Proto %s",
+                                  datapath.id, inPort, etherFrame.src,
                                   etherFrame.dst, ip_packet.src, ip_packet.dst, ip_packet.proto)
 
-                if ip_packet.proto == 1: #ICMP
+                if ip_packet.proto == 1:  # ICMP
                     icmp_packet = packet.get_protocol(icmp.icmp)
                     self.reply_icmp(icmp_packet, ip_packet, etherFrame, inPort, datapath)
-                elif ip_packet.proto == 6: #TCP
+                elif ip_packet.proto == 6:  # TCP
                     tcp_packet = packet.get_protocol(tcp.tcp)
-                    self.pass_tcp(  msg, tcp_packet, ip_packet, etherFrame)
+                    self.pass_tcp(msg, tcp_packet, ip_packet, etherFrame)
             else:
                 self.logger.debug("Drop packet")
                 return 1
         else:
             if etherFrame.ethertype == ether.ETH_TYPE_ARP:
-                self.logger.debug("ARP Switch1/2 Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort, etherFrame.src, etherFrame.dst)
+                self.logger.debug("ARP Switch1/2 Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id,
+                                  inPort, etherFrame.src, etherFrame.dst)
                 self.receive_arp(datapath, packet, etherFrame, inPort)
             else:
                 self.logger.info("Error: message from unexpected switch of datapath %s", datapath.id)
 
-
     def reply_icmp(self, icmp_header, ipv4_header, ethernet_header, in_port, datapath):
         self.send_icmp(in_port,
-                             icmp.ICMP_ECHO_REPLY,
-                             icmp.ICMP_ECHO_REPLY_CODE, datapath,
-                              ipv4_header, ethernet_header, icmp_data=icmp_header.data)
+                       icmp.ICMP_ECHO_REPLY,
+                       icmp.ICMP_ECHO_REPLY_CODE, datapath,
+                       ipv4_header, ethernet_header, icmp_data=icmp_header.data)
 
     # z https://mik.bme.hu/~zfaigl/QoS/scripts/qos_rest_router.py
     def send_icmp(self, in_port, icmp_type,
-                  icmp_code, datapath, ipv4_header=None, ethernet_header=None, icmp_data=None, msg_data=None, src_ip=None):
+                  icmp_code, datapath, ipv4_header=None, ethernet_header=None, icmp_data=None, msg_data=None,
+                  src_ip=None):
         # Generate ICMP reply packet
         csum = 0
         offset = ethernet.ethernet._MIN_LEN
@@ -256,11 +293,11 @@ class SimpleSwitch(app_manager.RyuApp):
         in_port = message.match['in_port']
         parser = datapath.ofproto_parser
 
-        if in_port in OUTER_PORTS: #from outer space
+        if in_port in OUTER_PORTS:  # from outer space
             ip_addr = ip_header.src
             ip_to_out_port[ip_addr] = Switch_out_port(port_id=in_port, out_mac=ethernet_header.src)
 
-            #inner_port_id = INNER_CONECTIONS[port % 2]
+            # inner_port_id = INNER_CONECTIONS[port % 2]
             inner_port_id = INNER_CONECTIONS[0]
 
             actions = [
@@ -271,29 +308,21 @@ class SimpleSwitch(app_manager.RyuApp):
             if message.buffer_id == 0xffffffff:
                 data = message.data
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
-                                      in_port=in_port, actions=actions)
+                                      in_port=in_port, actions=[parser.OFPActionOutput(PORT_S3_S1)]) #todo can tell switch to use new rule
             datapath.send_msg(out)
-        else:
-            dst_ip_addr = ip_header.dst
-            if dst_ip_addr in ip_to_out_port:
-                out_switch_port = ip_to_out_port[dst_ip_addr]
-            else:
-                print "Dropping msg as dst is not understood"
-                return
-            actions = [
-                parser.OFPActionSetField(eth_dst=out_switch_port.out_mac),
-                parser.OFPActionSetField(ipv4_src=OUTER_IP),
-                parser.OFPActionOutput(out_switch_port.port_id)
-            ]
 
-            data = None
-            # Check the buffer_id and if needed pass the whole message down
-            if message.buffer_id == 0xffffffff:
-                data = message.data
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
-                                      in_port=in_port, actions=actions)
-            datapath.send_msg(out)
-            return
+            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(PORT_S3_S1)], inet.IPPROTO_TCP, ip_addr)
+            dst_actions = [
+                parser.OFPActionSetField(eth_dst=ethernet_header.src),
+                parser.OFPActionSetField(ipv4_src=OUTER_IP),
+                parser.OFPActionOutput(in_port)
+            ]
+            self.add_dst_ip_flow(datapath, PORT_S3_S1, dst_actions, inet.IPPROTO_TCP, ip_addr)
+            self.add_dst_ip_flow(datapath, PORT_S3_S2, dst_actions, inet.IPPROTO_TCP, ip_addr)
+
+        else:
+            print "Error: unexpected tcp pass from one of inner ports: "+in_port
+
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def _port_status_handler(self, ev):
@@ -329,7 +358,7 @@ class SimpleSwitch(app_manager.RyuApp):
                     watch_group=ofproto.OFPG_ANY,
                     actions=[
                         parser.OFPActionSetField(eth_dst=MACADDR_H1_S2),
-                        parser.OFPActionSetField( ipv4_dst=HOST_H1_S2_IP),
+                        parser.OFPActionSetField(ipv4_dst=HOST_H1_S2_IP),
                         parser.OFPActionOutput(PORT_S2_H1)]
                 ),
                 parser.OFPBucket(
@@ -344,8 +373,8 @@ class SimpleSwitch(app_manager.RyuApp):
                 ),
             ]
             group_id = 1
-            #req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, group_id, buckets)
-            #datapath.send_msg(req)
+            # req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, group_id, buckets)
+            # datapath.send_msg(req)
 
             actions = [
                 parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
@@ -368,7 +397,7 @@ class SimpleSwitch(app_manager.RyuApp):
                 parser.OFPActionSetField(ipv4_dst=HOST_H1_S1_IP),
                 parser.OFPActionOutput(PORT_S1_H1)
             ]
-            self.add_flow_no_mac(datapath, PORT_S1_S3, actions )
+            self.add_flow_no_mac(datapath, PORT_S1_S3, actions)
 
             actions2 = [
                 parser.OFPActionOutput(PORT_S1_S3)
@@ -381,8 +410,7 @@ class SimpleSwitch(app_manager.RyuApp):
         switch = ev.switch.dp.id
         self.logger.info("Left %s", switch)
 
-
-    def send_packet_out(self,datapath, in_port, output, data, data_str=None):
+    def send_packet_out(self, datapath, in_port, output, data, data_str=None):
         actions = [datapath.ofproto_parser.OFPActionOutput(output, 0)]
         datapath.send_packet_out(buffer_id=UINT32_MAX, in_port=in_port,
-                                actions=actions, data=data)
+                                 actions=actions, data=data)
