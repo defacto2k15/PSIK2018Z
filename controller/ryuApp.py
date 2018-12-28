@@ -32,19 +32,19 @@ HOST_H1_S2_IP = "10.0.1.2"
 HOST_H2_S1_IP = "10.0.2.1"
 HOST_H2_S2_IP = "10.0.2.2"
 
-PORT_S3_K1 = 2
-PORT_S3_K2 = 4
+PORT_S3_K1 = 1
+PORT_S3_K2 = 2
 OUTER_PORTS = [PORT_S3_K1, PORT_S3_K2]
 
-PORT_S2_S3 = 3
 PORT_S2_H1 = 1
 PORT_S2_H2 = 2
+PORT_S2_S3 = 3
 
+PORT_S1_H1 = 1
 PORT_S1_H2 = 2
 PORT_S1_S3 = 3
-PORT_S1_H1 = 1
 
-MACADDR_S2_S3 = "00:00:00:00:00:15"
+MACADDR_S2_S3 = "00:00:00:00:00:13"
 MACADDR_S2_H1 = "00:00:00:00:00:07"
 MACADDR_S2_H2 = "00:00:00:00:00:02"
 
@@ -56,18 +56,18 @@ MACADDR_S1_H2 = "00:00:00:00:00:06"
 MACADDR_S1_H1 = "00:00:00:00:00:05"
 MACADDR_H2_S1 = "00:00:00:00:00:03"
 
-MACADDR_S1_S3 = "00:00:00:00:00:13"
+MACADDR_S1_S3 = "00:00:00:00:00:15"
 MACADDR_S3_S1 = "00:00:00:00:00:16"
 MACADDR_H1_S1 = "00:00:00:00:00:01"
 
 
-INNER_PORTS = [1,3]
+INNER_PORTS = [3,4]
 
 global Switch_link
 Switch_link = namedtuple("Switch_link", ["port_id", "switch_port_mac", "other_port_mac"])
 
-INNER_CONECTIONS = [Switch_link(port_id=1, switch_port_mac="00:00:00:00:00:14", other_port_mac="00:00:00:00:00:15"),
-                    Switch_link(port_id=3, switch_port_mac="00:00:00:00:00:16", other_port_mac="00:00:00:00:00:13")]
+INNER_CONECTIONS = [Switch_link(port_id=3, switch_port_mac=MACADDR_S3_S1, other_port_mac=MACADDR_S1_S3),
+                    Switch_link(port_id=4, switch_port_mac=MACADDR_S3_S2, other_port_mac=MACADDR_S2_S3)]
 
 
 ROUTER_PORT1 = 1
@@ -301,7 +301,8 @@ class SimpleSwitch(app_manager.RyuApp):
                 print "Created mapping: %s %s to %s %s" % (ipv4_addr.addr, ipv4_addr.port, OUTER_IP, port)
 
             #TODO: lepszy wybor sciezki
-            inner_path = INNER_CONECTIONS[port % 2]
+            #inner_path = INNER_CONECTIONS[port % 2]
+            inner_path = INNER_CONECTIONS[0]
 
             actions = [
                 parser.OFPActionSetField(eth_src=inner_path.switch_port_mac),
