@@ -9,6 +9,8 @@ from subprocess import Popen, PIPE
 from mininet.node import RemoteController, Controller
 from functools import partial
 import sys
+import threading
+
 
 # from testServer import testHTTPRequestHandler
 
@@ -26,7 +28,8 @@ class SimpleTopo(Topo):
 
         s1 = self.addSwitch('s1', dpid='0000000000000001', protocols='OpenFlow13')
         s2 = self.addSwitch('s2', dpid='0000000000000002', protocols='OpenFlow13')
-        s3 = self.addSwitch('s3', dpid='0000000000000003', protocols='OpenFlow13')  # switch-wtyczka miedzy siecia a kliantami
+        s3 = self.addSwitch('s3', dpid='0000000000000003',
+                            protocols='OpenFlow13')  # switch-wtyczka miedzy siecia a kliantami
 
         klient1 = self.addHost('klient1', ip="10.0.10.1/8")
         klient2 = self.addHost('klient2', ip="10.0.10.2/8")
@@ -40,12 +43,12 @@ class SimpleTopo(Topo):
         self.addLink(klient1, s3, intfName1='k1-eth-s3', intfName2='s3-eth-k1', port1=1, port2=1)
         self.addLink(klient2, s3, intfName1='k2-eth-s3', intfName2='s3-eth-k2', port1=1, port2=2)
 
-        self.addLink(s1, s3, port1=3, port2=3) #s1-eth3<->s3-eth3
-        self.addLink(s2, s3, port1=3, port2=4) #s2-eth3<->s3-eth4
+        self.addLink(s1, s3, port1=3, port2=3)  # s1-eth3<->s3-eth3
+        self.addLink(s2, s3, port1=3, port2=4)  # s2-eth3<->s3-eth4
 
 
 def configureNet(net):
-    h1, h2, s3, s2, s1,  k1, k2 = net.get('h1', 'h2',  's3', 's2', 's1', 'klient1', 'klient2')
+    h1, h2, s3, s2, s1, k1, k2 = net.get('h1', 'h2', 's3', 's2', 's1', 'klient1', 'klient2')
 
     h2.intf(intf='h2-eth-s1').setIP('10.0.3.1/24')
     h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:03')
@@ -80,6 +83,7 @@ def configureNet(net):
     k2.intf(intf='k2-eth-s3').setIP('10.0.10.2/8')
     k2.intf(intf='k2-eth-s3').setMAC('00:00:00:00:00:12')
 
+
 def run():
     myTopo = SimpleTopo()
     myController = partial(RemoteController, ip='192.168.74.5', port=6633)
@@ -88,9 +92,31 @@ def run():
     configureNet(net)
     net.start()
 
+    def Stopping():
+        print "Stopping!!"
+        # TUTAJ PISZE JAK SIE WYLACZA SWITCHE I INTEREFEJSY
+        # net.get('s1').stop()
+        net.get('s2').stop()
+        net.get('h1').cmd('ifconfig h1-eth-s1 down')
+        # net.get('h1').cmd('ifconfig h1-eth-s2 down')
+        # net.get('h2').cmd('ifconfig h2-eth-s1 down')
+        # net.get('h2').cmd('ifconfig h2-eth-s2 down')
+    def Starting():
+        print "Starting!!"
+        # TUTAJ PISZE JAK SIE włącza
+        # net.get('s1').start('')
+        # net.get('s2').start('')
+        net.get('h1').cmd('ifconfig h1-eth-s1 up')
+        # net.get('h1').cmd('ifconfig h1-eth-s2 up')
+        # net.get('h2').cmd('ifconfig h2-eth-s1 up')
+        # net.get('h2').cmd('ifconfig h2-eth-s2 up')
+
+    threading.Timer(10.0, Stopping).start()
+    threading.Timer(20.0, Starting).start()
+
     klient1 = net.get('klient1')
     klient1.cmd('ping 10.0.5.1 -c1')
-    
+
     h1 = net.get('h1')
     h1.cmd('cd /home/mininet/server/h1')
     h1.cmd('python -m SimpleHTTPServer 80 &')
@@ -99,7 +125,7 @@ def run():
     h2.cmd('cd /home/mininet/server/h2')
     h2.cmd('python -m SimpleHTTPServer 80 &')
 
-    if False:
+    if False:  # nieważne, do testów
         cli = CLI(net, script='echo "lol"')
         CLI.do_xterm(cli, "h1 klient1")
 
@@ -107,8 +133,6 @@ def run():
             print line
     else:
         CLI(net)
-
-    CLI(net)
 
     # POLECENIA DO TESTOWANIA
     # klient1 ping 10.0.5.1 -c1
