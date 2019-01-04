@@ -337,13 +337,13 @@ class SimpleSwitch(app_manager.RyuApp):
             ip_to_out_port[ip_addr] = Switch_out_port(port_id=in_port, out_mac=ethernet_header.src)
 
             buckets = [
-                # parser.OFPBucket(
-                #     weight=50,
-                #     watch_port=ofproto.OFPP_ANY,
-                #     watch_group=ofproto.OFPG_ANY,
-                #     actions=[
-                #         parser.OFPActionOutput(PORT_S3_S1)]
-                # ),
+                parser.OFPBucket(
+                    weight=50,
+                    watch_port=ofproto.OFPP_ANY,
+                    watch_group=ofproto.OFPG_ANY,
+                    actions=[
+                        parser.OFPActionOutput(PORT_S3_S1)]
+                ),
                 parser.OFPBucket(
                     weight=50,
                     watch_port=ofproto.OFPP_ANY,
@@ -359,14 +359,12 @@ class SimpleSwitch(app_manager.RyuApp):
             # self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S3)],
             #                      {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP, 'ipv4_src':ip_addr} )
 
-            debPort = PORT_S3_S2
+            #debPort = PORT_S3_S1
 
-            data = None
-            # Check the buffer_id and if needed pass the whole message down
-            if message.buffer_id == 0xffffffff:
-                data = message.data
+            #self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(debPort)], inet.IPPROTO_TCP, ip_addr)
+            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionGroup(GROUP_ID_S3)], inet.IPPROTO_TCP, ip_addr)
 
-            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(debPort)], inet.IPPROTO_TCP, ip_addr)
+
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
                 parser.OFPActionSetField(ipv4_src=OUTER_IP),
@@ -375,9 +373,13 @@ class SimpleSwitch(app_manager.RyuApp):
             self.add_dst_ip_flow(datapath, PORT_S3_S1, dst_actions, inet.IPPROTO_TCP, ip_addr)
             self.add_dst_ip_flow(datapath, PORT_S3_S2, dst_actions, inet.IPPROTO_TCP, ip_addr)
 
+            data = None
+            # Check the buffer_id and if needed pass the whole message down
+            if message.buffer_id == 0xffffffff:
+                data = message.data
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
                                       in_port=in_port,
-                                      actions=[parser.OFPActionOutput(in_port)])  # todo can tell switch to use new rule
+                                      actions=[parser.OFPActionOutput(ofproto.OFPP_TABLE)])  # todo can tell switch to use new rule
             datapath.send_msg(out)
 
         else:
@@ -411,7 +413,7 @@ class SimpleSwitch(app_manager.RyuApp):
                 data = message.data
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
                                       in_port=in_port,
-                                      actions=dst_actions)
+                                      actions=[parser.OFPActionOutput(datapath.ofproto.OFPP_TABLE)])
             datapath.send_msg(out)
 
         else:
@@ -445,7 +447,7 @@ class SimpleSwitch(app_manager.RyuApp):
                 data = message.data
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
                                       in_port=in_port,
-                                      actions=dst_actions)  # todo can tell switch to use new rule
+                                      actions=[parser.OFPActionOutput(datapath.ofproto.OFPP_TABLE)])  # todo can tell switch to use new rule
             datapath.send_msg(out)
 
         else:
