@@ -28,8 +28,8 @@ class SimpleTopo(Topo):
         s2 = self.addSwitch('s2', dpid='0000000000000002', protocols='OpenFlow13')
         s3 = self.addSwitch('s3', dpid='0000000000000003', protocols='OpenFlow13')  # switch-wtyczka miedzy siecia a kliantami
 
-        klient1 = self.addHost('klient1', ip="10.0.3.1/8")
-        klient2 = self.addHost('klient2', ip="10.0.3.2/8")
+        klient1 = self.addHost('klient1', ip="10.0.10.1/8")
+        klient2 = self.addHost('klient2', ip="10.0.10.2/8")
 
         #self.addLink(h1, s1, intfName1='h1-eth-s1', intfName2='s1-eth-h1', port1=1, port2=1)
         #self.addLink(h2, s1, intfName1='h2-eth-s1', intfName2='s1-eth-h2', port1=1, port2=2)
@@ -47,16 +47,16 @@ class SimpleTopo(Topo):
 def configureNet(net):
     h1, h2, s3, s2, s1,  k1, k2 = net.get('h1', 'h2',  's3', 's2', 's1', 'klient1', 'klient2')
 
-    # h2.intf(intf='h2-eth-s1').setIP('10.0.2.1/8')
+    # h2.intf(intf='h2-eth-s1').setIP('10.0.3.1/24')
     # h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:03')
 
-    #h1.intf(intf='h1-eth-s1').setIP('10.0.1.1/8')
+    #h1.intf(intf='h1-eth-s1').setIP('10.0.1.1/24')
     #h1.intf(intf='h1-eth-s1').setMAC('00:00:00:00:00:01')
 
-    h1.intf(intf='h1-eth-s2').setIP('10.0.1.2/8')
+    h1.intf(intf='h1-eth-s2').setIP('10.0.2.1/24')
     h1.intf(intf='h1-eth-s2').setMAC('00:00:00:00:00:02')
 
-    h2.intf(intf='h2-eth-s2').setIP('10.0.2.2/8')
+    h2.intf(intf='h2-eth-s2').setIP('10.0.4.1/24')
     h2.intf(intf='h2-eth-s2').setMAC('00:00:00:00:00:04')
 
     s3.intf(intf='s3-eth4').setMAC('00:00:00:00:00:14')
@@ -74,10 +74,10 @@ def configureNet(net):
     # s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:06')
     #s1.intf(intf='s1-eth-h1').setMAC('00:00:00:00:00:05')
 
-    k1.intf(intf='k1-eth-s3').setIP('10.0.3.1/8')
+    k1.intf(intf='k1-eth-s3').setIP('10.0.10.1/8')
     k1.intf(intf='k1-eth-s3').setMAC('00:00:00:00:00:11')
 
-    k2.intf(intf='k2-eth-s3').setIP('10.0.3.2/8')
+    k2.intf(intf='k2-eth-s3').setIP('10.0.10.2/8')
     k2.intf(intf='k2-eth-s3').setMAC('00:00:00:00:00:12')
 
 def run():

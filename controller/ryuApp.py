@@ -27,9 +27,14 @@ SWITCH1_DPID = 1
 OUTER_IP = "10.0.5.1"
 
 HOST_H1_S1_IP = "10.0.1.1"
-HOST_H1_S2_IP = "10.0.1.2"
-HOST_H2_S1_IP = "10.0.2.1"
-HOST_H2_S2_IP = "10.0.2.2"
+HOST_H1_S2_IP = "10.0.2.1"
+HOST_H2_S1_IP = "10.0.3.1"
+HOST_H2_S2_IP = "10.0.4.1"
+
+SWITCH_S1_H1_IP = "10.0.1.2"
+SWITCH_S2_H1_IP = "10.0.2.2"
+SWITCH_S1_H2_IP = "10.0.3.2"
+SWITCH_S2_H2_IP = "10.0.4.2"
 
 PORT_S3_K1 = 1
 PORT_S3_K2 = 2
@@ -226,6 +231,16 @@ class SimpleSwitch(app_manager.RyuApp):
                 self.logger.debug("ARP Switch1/2 Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id,
                                   inPort, etherFrame.src, etherFrame.dst)
                 self.receive_arp(datapath, packet, etherFrame, inPort)
+            elif etherFrame.ethertype == ether.ETH_TYPE_IP:
+                ip_packet = packet.get_protocol(ipv4.ipv4)
+                if ip_packet.proto == 6:  # TCP
+                    tcp_packet = packet.get_protocol(tcp.tcp)
+                    if datapath.id == SWITCH1_DPID:
+                        self.pass_tcp_s1(msg, ip_packet)
+                    else:
+                        self.pass_tcp_s2(msg, ip_packet)
+                else:
+                    self.logger.info("Error: IP message from unexpected switch of datapath %s proto %s", datapath.id, ip_packet.proto)
             else:
                 self.logger.info("Error: message from unexpected switch of datapath %s", datapath.id)
 
@@ -341,18 +356,17 @@ class SimpleSwitch(app_manager.RyuApp):
             req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S3, buckets)
             datapath.send_msg(req)
 
-            #self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S3)],
+            # self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S3)],
             #                      {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP, 'ipv4_src':ip_addr} )
+
+            debPort = PORT_S3_S2
 
             data = None
             # Check the buffer_id and if needed pass the whole message down
             if message.buffer_id == 0xffffffff:
                 data = message.data
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
-                                      in_port=in_port, actions=[parser.OFPActionOutput(PORT_S3_S2)])  # todo can tell switch to use new rule
-            datapath.send_msg(out)
 
-            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(PORT_S3_S2)], inet.IPPROTO_TCP, ip_addr)
+            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(debPort)], inet.IPPROTO_TCP, ip_addr)
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
                 parser.OFPActionSetField(ipv4_src=OUTER_IP),
@@ -361,8 +375,81 @@ class SimpleSwitch(app_manager.RyuApp):
             self.add_dst_ip_flow(datapath, PORT_S3_S1, dst_actions, inet.IPPROTO_TCP, ip_addr)
             self.add_dst_ip_flow(datapath, PORT_S3_S2, dst_actions, inet.IPPROTO_TCP, ip_addr)
 
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
+                                      in_port=in_port,
+                                      actions=[parser.OFPActionOutput(in_port)])  # todo can tell switch to use new rule
+            datapath.send_msg(out)
+
         else:
             print "Error: unexpected tcp pass from one of inner ports: " + in_port
+
+    def pass_tcp_s1(self, message, ip_header):
+        datapath = message.datapath
+        in_port = message.match['in_port']
+        parser = datapath.ofproto_parser
+
+        if in_port == PORT_S1_S3:  # from outer space
+            ip_addr = ip_header.src
+
+            dst_actions = [
+                parser.OFPActionSetField(eth_dst=MACADDR_H1_S1),
+                parser.OFPActionSetField(ipv4_dst=HOST_H1_S1_IP),
+                parser.OFPActionSetField(ipv4_src=SWITCH_S1_H1_IP),
+                parser.OFPActionOutput(PORT_S1_H1)
+            ]
+
+            self.add_flow_no_mac2(datapath, dst_actions,
+                                  {'in_port': PORT_S1_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                   'ipv4_src': ip_addr})
+
+            self.add_flow_no_mac2(datapath,
+                                  [parser.OFPActionSetField(ipv4_dst=ip_addr), parser.OFPActionOutput(PORT_S1_S3)],
+                                  {'in_port': PORT_S1_H1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                   'ipv4_dst': SWITCH_S1_H1_IP})
+            data = None
+            if message.buffer_id == 0xffffffff:
+                data = message.data
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
+                                      in_port=in_port,
+                                      actions=dst_actions)
+            datapath.send_msg(out)
+
+        else:
+            self.logger.error("Error S1: unexpected tcp pass from one of  port %s: ", in_port)
+            
+    def pass_tcp_s2(self, message, ip_header):
+        datapath = message.datapath
+        in_port = message.match['in_port']
+        parser = datapath.ofproto_parser
+
+        if in_port == PORT_S2_S3:  # from outer space
+            ip_addr = ip_header.src
+
+            dst_actions = [
+                parser.OFPActionSetField(eth_dst=MACADDR_H1_S2),
+                parser.OFPActionSetField(ipv4_dst=HOST_H1_S2_IP),
+                parser.OFPActionSetField(ipv4_src=SWITCH_S2_H1_IP),
+                parser.OFPActionOutput(PORT_S2_H1)
+            ]
+
+            self.add_flow_no_mac2(datapath, dst_actions,
+                                  {'in_port': PORT_S2_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                   'ipv4_src': ip_addr})
+
+            self.add_flow_no_mac2(datapath,
+                                  [parser.OFPActionSetField(ipv4_dst=ip_addr), parser.OFPActionOutput(PORT_S2_S3)],
+                                  {'in_port': PORT_S2_H1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                   'ipv4_dst': SWITCH_S2_H1_IP})
+            data = None
+            if message.buffer_id == 0xffffffff:
+                data = message.data
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
+                                      in_port=in_port,
+                                      actions=dst_actions)  # todo can tell switch to use new rule
+            datapath.send_msg(out)
+
+        else:
+            self.logger.error("Error S2: unexpected tcp pass from one of  port %s: ",in_port)
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def _port_status_handler(self, ev):
@@ -424,10 +511,10 @@ class SimpleSwitch(app_manager.RyuApp):
                 #     ]
                 # ),
             ]
-            req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S2, buckets)
-            datapath.send_msg(req)
-            self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S2)],
-                                 {'in_port': PORT_S2_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP})
+            # req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S2, buckets)
+            # datapath.send_msg(req)
+            # self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S2)],
+            #                       {'in_port': PORT_S2_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP})
             # self.add_flow_no_mac2(datapath, [
             #             parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
             #             parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
@@ -440,9 +527,8 @@ class SimpleSwitch(app_manager.RyuApp):
             #                          parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
             #                          parser.OFPActionOutput(PORT_S2_H2)])
 
-
-            self.add_flow_no_mac(datapath, PORT_S2_H1, [parser.OFPActionOutput(PORT_S2_S3)])
-            self.add_flow_no_mac(datapath, PORT_S2_H2, [parser.OFPActionOutput(PORT_S2_S3)])
+            # self.add_flow_no_mac(datapath, PORT_S2_H1, [parser.OFPActionOutput(PORT_S2_S3)])
+            # self.add_flow_no_mac(datapath, PORT_S2_H2, [parser.OFPActionOutput(PORT_S2_S3)])
 
         elif datapath.id == SWITCH1_DPID:
             buckets = [
@@ -466,16 +552,16 @@ class SimpleSwitch(app_manager.RyuApp):
                     ]
                 ),
             ]
-            req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S1, buckets)
-            datapath.send_msg(req)
-            self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S1)],
-                                  {'in_port': PORT_S1_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP})
-
-            actions2 = [
-                parser.OFPActionOutput(PORT_S1_S3)
-            ]
-            self.add_flow_no_mac(datapath, PORT_S1_H1, actions2)
-            self.add_flow_no_mac(datapath, PORT_S1_H2, actions2)
+            # req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S1, buckets)
+            # datapath.send_msg(req)
+            # self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S1)],
+            #                       {'in_port': PORT_S1_S3, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP})
+            #
+            # actions2 = [
+            #     parser.OFPActionOutput(PORT_S1_S3)
+            # ]
+            # self.add_flow_no_mac(datapath, PORT_S1_H1, actions2)
+            # self.add_flow_no_mac(datapath, PORT_S1_H2, actions2)
 
     @set_ev_cls(event.EventSwitchLeave)
     def switch_leave_handler(self, ev):
