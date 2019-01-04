@@ -32,7 +32,7 @@ class SimpleTopo(Topo):
         klient2 = self.addHost('klient2', ip="10.0.10.2/8")
 
         self.addLink(h1, s1, intfName1='h1-eth-s1', intfName2='s1-eth-h1', port1=1, port2=1)
-        #self.addLink(h2, s1, intfName1='h2-eth-s1', intfName2='s1-eth-h2', port1=1, port2=2)
+        self.addLink(h2, s1, intfName1='h2-eth-s1', intfName2='s1-eth-h2', port1=1, port2=2)
 
         self.addLink(h1, s2, intfName1='h1-eth-s2', intfName2='s2-eth-h1', port1=2, port2=1)
         self.addLink(h2, s2, intfName1='h2-eth-s2', intfName2='s2-eth-h2', port1=2, port2=2)
@@ -47,8 +47,8 @@ class SimpleTopo(Topo):
 def configureNet(net):
     h1, h2, s3, s2, s1,  k1, k2 = net.get('h1', 'h2',  's3', 's2', 's1', 'klient1', 'klient2')
 
-    # h2.intf(intf='h2-eth-s1').setIP('10.0.3.1/24')
-    # h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:03')
+    h2.intf(intf='h2-eth-s1').setIP('10.0.3.1/24')
+    h2.intf(intf='h2-eth-s1').setMAC('00:00:00:00:00:03')
 
     h1.intf(intf='h1-eth-s1').setIP('10.0.1.1/24')
     h1.intf(intf='h1-eth-s1').setMAC('00:00:00:00:00:01')
@@ -71,7 +71,7 @@ def configureNet(net):
     s2.intf(intf='s2-eth-h1').setMAC('00:00:00:00:00:07')
     s2.intf(intf='s2-eth-h2').setMAC('00:00:00:00:00:08')
 
-    # s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:06')
+    s1.intf(intf='s1-eth-h2').setMAC('00:00:00:00:00:06')
     s1.intf(intf='s1-eth-h1').setMAC('00:00:00:00:00:05')
 
     k1.intf(intf='k1-eth-s3').setIP('10.0.10.1/8')
