@@ -64,8 +64,6 @@ MACADDR_S1_S3 = "00:00:00:00:00:15"
 MACADDR_S3_S1 = "00:00:00:00:00:16"
 MACADDR_H1_S1 = "00:00:00:00:00:01"
 
-OUTER_MAC = "11:11:11:11:11:11"
-
 PORT_S3_S1 = 3
 PORT_S3_S2 = 4
 
@@ -223,7 +221,7 @@ class SimpleSwitch(app_manager.RyuApp):
         arpPacket = packet.get_protocol(arp)
 
         if arpPacket.opcode == 1:
-            self.send_arp(datapath, 2, OUTER_MAC, arpPacket.dst_ip, etherFrame.src, arpPacket.src_ip, inPort)
+            self.send_arp(datapath, 2, datapath.ports[inPort].hw_addr, arpPacket.dst_ip, etherFrame.src, arpPacket.src_ip, inPort)
         elif arpPacket.opcode == 2:
             pass
 
@@ -252,6 +250,10 @@ class SimpleSwitch(app_manager.RyuApp):
         in_port = message.match['in_port']
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
+
+        tcp_src = tcp_header.src_port
+
+        self.logger.debug("TCP PORT IS %s", tcp_header.src_port)
 
         if in_port in OUTER_PORTS:  # from outer space
             ip_addr = ip_header.src
@@ -300,7 +302,8 @@ class SimpleSwitch(app_manager.RyuApp):
             self.add_flow_no_mac(datapath,
                                  [parser.OFPActionGroup(GROUP_ID_S3)],
                                  {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                  'ipv4_src': ip_addr})
+                                  'ipv4_src': ip_addr,
+                                  'tcp_src': tcp_src})
 
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
@@ -312,20 +315,24 @@ class SimpleSwitch(app_manager.RyuApp):
             self.add_flow_no_mac(datapath,
                                  dst_actions,
                                  {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                  'ipv4_dst': SWITCH_S1_H1_IP})
+                                  'ipv4_dst': SWITCH_S1_H1_IP,
+                                  'tcp_dst': tcp_src})
             self.add_flow_no_mac(datapath,
                                  dst_actions,
                                  {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                  'ipv4_dst': SWITCH_S2_H1_IP})
+                                  'ipv4_dst': SWITCH_S2_H1_IP,
+                                  'tcp_dst': tcp_src})
 
             self.add_flow_no_mac(datapath,
                                  dst_actions,
                                  {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                  'ipv4_dst': SWITCH_S1_H2_IP})
+                                  'ipv4_dst': SWITCH_S1_H2_IP,
+                                  'tcp_dst': tcp_src})
             self.add_flow_no_mac(datapath,
                                  dst_actions,
                                  {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                  'ipv4_dst': SWITCH_S2_H2_IP})
+                                  'ipv4_dst': SWITCH_S2_H2_IP,
+                                  'tcp_dst': tcp_src})
 
             self.send_message_to_table(datapath, in_port, message)
         else:
