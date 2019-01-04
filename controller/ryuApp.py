@@ -336,15 +336,15 @@ class SimpleSwitch(app_manager.RyuApp):
                         parser.OFPActionOutput(PORT_S3_S1),
                     ],
                 ),
-                # parser.OFPBucket(
-                #     weight=50,
-                #     watch_port=ofproto.OFPP_ANY,
-                #     watch_group=ofproto.OFPG_ANY,
-                #     actions=[
-                #         parser.OFPActionSetField(ipv4_src=SWITCH_S1_H2_IP),
-                #         parser.OFPActionOutput(PORT_S3_S1),
-                #     ],
-                # ),
+                parser.OFPBucket(
+                    weight=50,
+                    watch_port=ofproto.OFPP_ANY,
+                    watch_group=ofproto.OFPG_ANY,
+                    actions=[
+                        parser.OFPActionSetField(ipv4_src=SWITCH_S1_H2_IP),
+                        parser.OFPActionOutput(PORT_S3_S1),
+                    ],
+                ),
                 parser.OFPBucket(
                     weight=50,
                     watch_port=ofproto.OFPP_ANY,
@@ -354,15 +354,15 @@ class SimpleSwitch(app_manager.RyuApp):
                         parser.OFPActionOutput(PORT_S3_S2)
                     ]
                 ),
-                # parser.OFPBucket(
-                #     weight=50,
-                #     watch_port=ofproto.OFPP_ANY,
-                #     watch_group=ofproto.OFPG_ANY,
-                #     actions=[
-                #         parser.OFPActionSetField(ipv4_src=SWITCH_S2_H2_IP),
-                #         parser.OFPActionOutput(PORT_S3_S2)
-                #     ]
-                # ),
+                parser.OFPBucket(
+                    weight=50,
+                    watch_port=ofproto.OFPP_ANY,
+                    watch_group=ofproto.OFPG_ANY,
+                    actions=[
+                        parser.OFPActionSetField(ipv4_src=SWITCH_S2_H2_IP),
+                        parser.OFPActionOutput(PORT_S3_S2)
+                    ]
+                ),
             ]
             req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S3, buckets)
             datapath.send_msg(req)
@@ -461,6 +461,13 @@ class SimpleSwitch(app_manager.RyuApp):
                                       parser.OFPActionOutput(PORT_S2_H1)
                                   ],
                                   {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H1_IP})
+            self.add_flow_no_mac2(datapath,
+                                  [
+                                      parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
+                                      parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
+                                      parser.OFPActionOutput(PORT_S2_H2)
+                                  ],
+                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H2_IP})
 
             self.add_flow_no_mac(datapath, PORT_S2_H1, [parser.OFPActionOutput(PORT_S2_S3)])
             self.add_flow_no_mac(datapath, PORT_S2_H2, [parser.OFPActionOutput(PORT_S2_S3)])
@@ -473,6 +480,13 @@ class SimpleSwitch(app_manager.RyuApp):
                                       parser.OFPActionOutput(PORT_S1_H1)
                                   ],
                                   {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H1_IP})
+            self.add_flow_no_mac2(datapath,
+                                  [
+                                      parser.OFPActionSetField(eth_dst=MACADDR_H2_S1),
+                                      parser.OFPActionSetField(ipv4_dst=HOST_H2_S1_IP),
+                                      parser.OFPActionOutput(PORT_S1_H2)
+                                  ],
+                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H2_IP})
 
             self.add_flow_no_mac(datapath, PORT_S1_H1, [parser.OFPActionOutput(PORT_S1_S3)])
             self.add_flow_no_mac(datapath, PORT_S1_H2, [parser.OFPActionOutput(PORT_S1_S3)])
