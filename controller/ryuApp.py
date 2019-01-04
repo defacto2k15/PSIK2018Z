@@ -73,8 +73,6 @@ GROUP_ID_S1 = 1
 GROUP_ID_S2 = 2
 GROUP_ID_S3 = 3
 
-INNER_CONECTIONS = [PORT_S3_S1, PORT_S3_S2]
-
 ROUTER_PORT1 = 1
 ROUTER_PORT2 = 2
 UINT32_MAX = 0xffffffff
@@ -90,97 +88,25 @@ FLOW_PRIORITY_LOW = 0x10
 
 class SimpleSwitch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
-    global Ipv4_addr
-    Ipv4_addr = namedtuple("Ipv4_addr", ["addr", "port", "mac", "switch_port"])
-    global Switch_port
-    Switch_port = namedtuple("SwitchPort", ["port_mac", "port_id"])
-    global Switch_out_port
-    Switch_out_port = namedtuple("Switch_out_port", ["out_mac", "port_id"])
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch, self).__init__(*args, **kwargs)
 
-        self.mac_to_port = {}
-
-        global maps
-        maps = {}
-        global ports
-        ports = range(50000, 60000)
-
-        global ip_to_out_port
-        ip_to_out_port = {}
-
-    def add_flow(self, datapath, in_port, dst, src, actions):
+    def send_message_to_table(sel, datapath, in_port, message):
+        parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
 
-        match = datapath.ofproto_parser.OFPMatch(
-            eth_type=0x0800,
-            in_port=in_port,
-            eth_dst=dst, eth_src=src)
+        data = None
+        # Check the buffer_id and if needed pass the whole message down
+        if message.buffer_id == 0xffffffff:
+            data = message.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
+                                  in_port=in_port,
+                                  actions=[parser.OFPActionOutput(
+                                      ofproto.OFPP_TABLE)])
+        datapath.send_msg(out)
 
-        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-
-        mod = datapath.ofproto_parser.OFPFlowMod(
-            datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
-            priority=ofproto.OFP_DEFAULT_PRIORITY,
-            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
-        datapath.send_msg(mod)
-
-    # todo remove code duplication
-    def add_src_ip_flow(self, datapath, in_port, actions, ip_proto, src_ip):
-        ofproto = datapath.ofproto
-
-        match = datapath.ofproto_parser.OFPMatch(
-            eth_type=0x0800,
-            ip_proto=ip_proto,
-            ipv4_src=src_ip,
-            in_port=in_port)
-
-        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-
-        mod = datapath.ofproto_parser.OFPFlowMod(
-            datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
-            priority=ofproto.OFP_DEFAULT_PRIORITY,
-            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
-        datapath.send_msg(mod)
-
-    def add_dst_ip_flow(self, datapath, in_port, actions, ip_proto, dst_ip):
-        ofproto = datapath.ofproto
-
-        match = datapath.ofproto_parser.OFPMatch(
-            eth_type=0x0800,
-            ip_proto=ip_proto,
-            ipv4_dst=dst_ip,
-            in_port=in_port)
-
-        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-
-        mod = datapath.ofproto_parser.OFPFlowMod(
-            datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
-            priority=ofproto.OFP_DEFAULT_PRIORITY,
-            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
-        datapath.send_msg(mod)
-
-    def add_flow_no_mac(self, datapath, in_port, actions):
-        ofproto = datapath.ofproto
-
-        match = datapath.ofproto_parser.OFPMatch(
-            eth_type=0x0800,
-            in_port=in_port)
-
-        instructions = [datapath.ofproto_parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-
-        mod = datapath.ofproto_parser.OFPFlowMod(
-            datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
-            priority=ofproto.OFP_DEFAULT_PRIORITY,
-            flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
-        datapath.send_msg(mod)
-
-    def add_flow_no_mac2(self, datapath, actions, match_args, priority=None):
+    def add_flow_no_mac(self, datapath, actions, match_args, priority=None):
         ofproto = datapath.ofproto
         if priority is None:
             priority = ofproto.OFP_DEFAULT_PRIORITY
@@ -288,6 +214,11 @@ class SimpleSwitch(app_manager.RyuApp):
         self.send_packet_out(datapath, in_port, datapath.ofproto.OFPP_IN_PORT,
                              pkt.data, data_str=str(pkt))
 
+    def send_packet_out(self, datapath, in_port, output, data, data_str=None):
+        actions = [datapath.ofproto_parser.OFPActionOutput(output, 0)]
+        datapath.send_packet_out(buffer_id=UINT32_MAX, in_port=in_port,
+                                 actions=actions, data=data)
+
     def receive_arp(self, datapath, packet, etherFrame, inPort):
         arpPacket = packet.get_protocol(arp)
 
@@ -324,7 +255,6 @@ class SimpleSwitch(app_manager.RyuApp):
 
         if in_port in OUTER_PORTS:  # from outer space
             ip_addr = ip_header.src
-            ip_to_out_port[ip_addr] = Switch_out_port(port_id=in_port, out_mac=ethernet_header.src)
 
             buckets = [
                 parser.OFPBucket(
@@ -367,13 +297,10 @@ class SimpleSwitch(app_manager.RyuApp):
             req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_SELECT, GROUP_ID_S3, buckets)
             datapath.send_msg(req)
 
-            # self.add_flow_no_mac2(datapath, [parser.OFPActionGroup(GROUP_ID_S3)],
-            #                      {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP, 'ipv4_src':ip_addr} )
-
-            # debPort = PORT_S3_S1
-
-            # self.add_src_ip_flow(datapath, in_port, [parser.OFPActionOutput(debPort)], inet.IPPROTO_TCP, ip_addr)
-            self.add_src_ip_flow(datapath, in_port, [parser.OFPActionGroup(GROUP_ID_S3)], inet.IPPROTO_TCP, ip_addr)
+            self.add_flow_no_mac(datapath,
+                                 [parser.OFPActionGroup(GROUP_ID_S3)],
+                                 {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                  'ipv4_src': ip_addr})
 
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
@@ -381,37 +308,26 @@ class SimpleSwitch(app_manager.RyuApp):
                 parser.OFPActionSetField(ipv4_dst=ip_addr),
                 parser.OFPActionOutput(in_port)
             ]
-            # self.add_dst_ip_flow(datapath, PORT_S3_S1, dst_actions, inet.IPPROTO_TCP, ip_addr)
-            # self.add_dst_ip_flow(datapath, PORT_S3_S2, dst_actions, inet.IPPROTO_TCP, ip_addr)
 
-            self.add_flow_no_mac2(datapath,
-                                  dst_actions,
-                                  {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                   'ipv4_dst': SWITCH_S1_H1_IP})
-            self.add_flow_no_mac2(datapath,
-                                  dst_actions,
-                                  {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                   'ipv4_dst': SWITCH_S2_H1_IP})
+            self.add_flow_no_mac(datapath,
+                                 dst_actions,
+                                 {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                  'ipv4_dst': SWITCH_S1_H1_IP})
+            self.add_flow_no_mac(datapath,
+                                 dst_actions,
+                                 {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                  'ipv4_dst': SWITCH_S2_H1_IP})
 
-            self.add_flow_no_mac2(datapath,
-                                  dst_actions,
-                                  {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                   'ipv4_dst': SWITCH_S1_H2_IP})
-            self.add_flow_no_mac2(datapath,
-                                  dst_actions,
-                                  {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                                   'ipv4_dst': SWITCH_S2_H2_IP})
+            self.add_flow_no_mac(datapath,
+                                 dst_actions,
+                                 {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                  'ipv4_dst': SWITCH_S1_H2_IP})
+            self.add_flow_no_mac(datapath,
+                                 dst_actions,
+                                 {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                                  'ipv4_dst': SWITCH_S2_H2_IP})
 
-            data = None
-            # Check the buffer_id and if needed pass the whole message down
-            if message.buffer_id == 0xffffffff:
-                data = message.data
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,
-                                      in_port=in_port,
-                                      actions=[parser.OFPActionOutput(
-                                          ofproto.OFPP_TABLE)])  # todo can tell switch to use new rule
-            datapath.send_msg(out)
-
+            self.send_message_to_table(datapath, in_port, message)
         else:
             self.logger.error("Error: unexpected tcp pass from one of inner ports: %s", in_port)
 
@@ -441,62 +357,61 @@ class SimpleSwitch(app_manager.RyuApp):
         self.logger.info("Entered %s", datapath.id)
 
         # table miss-flow entry
-        self.add_flow_no_mac2(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)], {}, PRIORITY_FLOW_MISS_ENTRY)
+        self.add_flow_no_mac(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)], {}, PRIORITY_FLOW_MISS_ENTRY)
         # all arp's to controller
-        self.add_flow_no_mac2(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
-                              {'eth_type': ether.ETH_TYPE_ARP})
+        self.add_flow_no_mac(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
+                             {'eth_type': ether.ETH_TYPE_ARP})
 
         if datapath.id == SWITCH3_DPID:
             # all ping to switch3
-            self.add_flow_no_mac2(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_ICMP})
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_ICMP})
             # all tcp to controller, but with low priority
-            self.add_flow_no_mac2(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP}, FLOW_PRIORITY_LOW)
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP}, FLOW_PRIORITY_LOW)
         elif datapath.id == SWITCH2_DPID:
-            self.add_flow_no_mac2(datapath,
-                                  [
-                                      parser.OFPActionSetField(eth_dst=MACADDR_H1_S2),
-                                      parser.OFPActionSetField(ipv4_dst=HOST_H1_S2_IP),
-                                      parser.OFPActionOutput(PORT_S2_H1)
-                                  ],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H1_IP})
-            self.add_flow_no_mac2(datapath,
-                                  [
-                                      parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
-                                      parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
-                                      parser.OFPActionOutput(PORT_S2_H2)
-                                  ],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H2_IP})
+            self.add_flow_no_mac(datapath,
+                                 [
+                                     parser.OFPActionSetField(eth_dst=MACADDR_H1_S2),
+                                     parser.OFPActionSetField(ipv4_dst=HOST_H1_S2_IP),
+                                     parser.OFPActionOutput(PORT_S2_H1)
+                                 ],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H1_IP})
+            self.add_flow_no_mac(datapath,
+                                 [
+                                     parser.OFPActionSetField(eth_dst=MACADDR_H2_S2),
+                                     parser.OFPActionSetField(ipv4_dst=HOST_H2_S2_IP),
+                                     parser.OFPActionOutput(PORT_S2_H2)
+                                 ],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_S3, 'ipv4_src': SWITCH_S2_H2_IP})
 
-            self.add_flow_no_mac(datapath, PORT_S2_H1, [parser.OFPActionOutput(PORT_S2_S3)])
-            self.add_flow_no_mac(datapath, PORT_S2_H2, [parser.OFPActionOutput(PORT_S2_S3)])
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(PORT_S2_S3)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_H1})
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(PORT_S2_S3)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S2_H2})
 
         elif datapath.id == SWITCH1_DPID:
-            self.add_flow_no_mac2(datapath,
-                                  [
-                                      parser.OFPActionSetField(eth_dst=MACADDR_H1_S1),
-                                      parser.OFPActionSetField(ipv4_dst=HOST_H1_S1_IP),
-                                      parser.OFPActionOutput(PORT_S1_H1)
-                                  ],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H1_IP})
-            self.add_flow_no_mac2(datapath,
-                                  [
-                                      parser.OFPActionSetField(eth_dst=MACADDR_H2_S1),
-                                      parser.OFPActionSetField(ipv4_dst=HOST_H2_S1_IP),
-                                      parser.OFPActionOutput(PORT_S1_H2)
-                                  ],
-                                  {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H2_IP})
+            self.add_flow_no_mac(datapath,
+                                 [
+                                     parser.OFPActionSetField(eth_dst=MACADDR_H1_S1),
+                                     parser.OFPActionSetField(ipv4_dst=HOST_H1_S1_IP),
+                                     parser.OFPActionOutput(PORT_S1_H1)
+                                 ],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H1_IP})
+            self.add_flow_no_mac(datapath,
+                                 [
+                                     parser.OFPActionSetField(eth_dst=MACADDR_H2_S1),
+                                     parser.OFPActionSetField(ipv4_dst=HOST_H2_S1_IP),
+                                     parser.OFPActionOutput(PORT_S1_H2)
+                                 ],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_S3, 'ipv4_src': SWITCH_S1_H2_IP})
 
-            self.add_flow_no_mac(datapath, PORT_S1_H1, [parser.OFPActionOutput(PORT_S1_S3)])
-            self.add_flow_no_mac(datapath, PORT_S1_H2, [parser.OFPActionOutput(PORT_S1_S3)])
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(PORT_S1_S3)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_H1})
+            self.add_flow_no_mac(datapath, [parser.OFPActionOutput(PORT_S1_S3)],
+                                 {'eth_type': ether.ETH_TYPE_IP, 'in_port': PORT_S1_H2})
 
     @set_ev_cls(event.EventSwitchLeave)
     def switch_leave_handler(self, ev):
         switch = ev.switch.dp.id
         self.logger.info("Left %s", switch)
-
-    def send_packet_out(self, datapath, in_port, output, data, data_str=None):
-        actions = [datapath.ofproto_parser.OFPActionOutput(output, 0)]
-        datapath.send_packet_out(buffer_id=UINT32_MAX, in_port=in_port,
-                                 actions=actions, data=data)
