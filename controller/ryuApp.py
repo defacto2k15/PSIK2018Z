@@ -84,6 +84,7 @@ DEFAULT_TTL = 64
 PRIORITY_FLOW_MISS_ENTRY = 1
 FLOW_PRIORITY_LOW = 0x10
 
+OUTFLOW_IDLE_TIMEOUT = 10 # 0 means infinite
 
 class PathState:
     def __init__(self, host_interface, switch):
@@ -119,7 +120,7 @@ class SimpleSwitch(app_manager.RyuApp):
                                       ofproto.OFPP_TABLE)])
         datapath.send_msg(out)
 
-    def add_flow(self, datapath, actions, match_args, priority=None):
+    def add_flow(self, datapath, actions, match_args, priority=None, idle_timeout=0):
         ofproto = datapath.ofproto
         if priority is None:
             priority = ofproto.OFP_DEFAULT_PRIORITY
@@ -130,7 +131,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
         mod = datapath.ofproto_parser.OFPFlowMod(
             datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=0, hard_timeout=0,
+            command=ofproto.OFPFC_ADD, idle_timeout=idle_timeout, hard_timeout=0,
             priority=priority,
             flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
         datapath.send_msg(mod)
@@ -254,8 +255,13 @@ class SimpleSwitch(app_manager.RyuApp):
         arpPacket = packet.get_protocol(arp)
 
         if arpPacket.opcode == 1:
-            self.send_arp(datapath, 2, datapath.ports[inPort].hw_addr, arpPacket.dst_ip, etherFrame.src,
-                          arpPacket.src_ip, inPort)
+            dst_ip = arpPacket.dst_ip
+            if (datapath.id == SWITCH3_DPID and dst_ip == OUTER_IP )\
+                    or(datapath.id == SWITCH1_DPID and dst_ip in ( SWITCH_S1_H1_IP, SWITCH_S1_H2_IP)) \
+                    or (datapath.id == SWITCH2_DPID and dst_ip in (SWITCH_S2_H1_IP, SWITCH_S2_H2_IP) ):
+                    self.send_arp(datapath, 2, datapath.ports[inPort].hw_addr, arpPacket.dst_ip, etherFrame.src, arpPacket.src_ip, inPort)
+            else:
+                self.logger.error("Unexpected ARP request from dpid %s dst_ip %s", datapath.id, dst_ip)
         elif arpPacket.opcode == 2:
             pass
 
@@ -361,7 +367,8 @@ class SimpleSwitch(app_manager.RyuApp):
                           [parser.OFPActionGroup(GROUP_ID_S3)],
                           {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_src': ip_addr,
-                           'tcp_src': tcp_src})
+                           'tcp_src': tcp_src}
+                          , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
 
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
@@ -374,23 +381,23 @@ class SimpleSwitch(app_manager.RyuApp):
                           dst_actions,
                           {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S1_H1_IP,
-                           'tcp_dst': tcp_src})
+                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S2_H1_IP,
-                           'tcp_dst': tcp_src})
+                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
 
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S1_H2_IP,
-                           'tcp_dst': tcp_src})
+                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S2_H2_IP,
-                           'tcp_dst': tcp_src})
+                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
 
             self.send_message_to_table(datapath, in_port, message)
         else:
