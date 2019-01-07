@@ -20,12 +20,12 @@ from ryu.ofproto import ether
 from ryu.ofproto import inet
 from ryu.ofproto import ofproto_v1_3
 from ryu.topology import event
+from ryu.app.wsgi import ControllerBase, WSGIApplication, route
+from webob import Response
 
 SWITCH3_DPID = 3
 SWITCH2_DPID = 2
 SWITCH1_DPID = 1
-
-OUTER_IP = "10.0.5.1"
 
 HOST_H1_S1_IP = "10.0.1.1"
 HOST_H1_S2_IP = "10.0.2.1"
@@ -84,7 +84,8 @@ DEFAULT_TTL = 64
 PRIORITY_FLOW_MISS_ENTRY = 1
 FLOW_PRIORITY_LOW = 0x10
 
-OUTFLOW_IDLE_TIMEOUT = 10 # 0 means infinite
+OUTFLOW_IDLE_TIMEOUT = 10  # 0 means infinite
+
 
 class PathState:
     def __init__(self, host_interface, switch):
@@ -92,10 +93,39 @@ class PathState:
         self.switch = switch
 
 
+switch_app_name = 'simple_switch_api_app'
+rest_url = '/change_public_address'
+rest_password = 'asdf'
+
+
+class TopologyAPI(ControllerBase):
+    def __init__(self, req, link, data, **config):
+        super(TopologyAPI, self).__init__(req, link, data, **config)
+        self.app = data[switch_app_name]
+
+    @route('simpleswitch', rest_url, methods=['POST'])
+    def _websocket_handler(self, req, **kwargs):
+        try:
+            body = req.json if req.body else {}
+        except ValueError:
+            raise Response(status=400)
+        if 'password' not in body or not body['password'] == rest_password:
+            print "Failed parsing password"
+            return Response(status=400)
+        if 'address' not in body:
+            print "Failed parsing address"
+            return Response(status=400)
+
+        self.app.change_public_ip(body['address'])
+
+        return Response(status=200)
+
+
 class SimpleSwitch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {
         'dpset': dpset.DPSet,
+        'wsgi': WSGIApplication
     }
 
     def __init__(self, *args, **kwargs):
@@ -105,6 +135,10 @@ class SimpleSwitch(app_manager.RyuApp):
         self.paths_state = {SWITCH_S1_H1_IP: PathState(True, False), SWITCH_S1_H2_IP: PathState(True, False),
                             SWITCH_S2_H1_IP: PathState(True, False), SWITCH_S2_H2_IP: PathState(True, False)}
         self.s3_group_created = False
+        self.OUTER_IP = "10.0.5.1"
+
+        wsgi = kwargs['wsgi']
+        wsgi.register(TopologyAPI, {switch_app_name: self})
 
     def send_message_to_table(sel, datapath, in_port, message):
         parser = datapath.ofproto_parser
@@ -120,10 +154,12 @@ class SimpleSwitch(app_manager.RyuApp):
                                       ofproto.OFPP_TABLE)])
         datapath.send_msg(out)
 
-    def add_flow(self, datapath, actions, match_args, priority=None, idle_timeout=0):
+    def add_flow(self, datapath, actions, match_args, priority=None, idle_timeout=0, command=None):
         ofproto = datapath.ofproto
         if priority is None:
             priority = ofproto.OFP_DEFAULT_PRIORITY
+        if command is None:
+            command = ofproto.OFPFC_ADD
 
         match = datapath.ofproto_parser.OFPMatch(**match_args)
 
@@ -131,7 +167,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
         mod = datapath.ofproto_parser.OFPFlowMod(
             datapath=datapath, match=match, cookie=0,
-            command=ofproto.OFPFC_ADD, idle_timeout=idle_timeout, hard_timeout=0,
+            command=command, idle_timeout=idle_timeout, hard_timeout=0,
             priority=priority,
             flags=ofproto.OFPFF_SEND_FLOW_REM, instructions=instructions)
         datapath.send_msg(mod)
@@ -174,6 +210,9 @@ class SimpleSwitch(app_manager.RyuApp):
                 self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s IP ISrc %s IDst %s Proto %s",
                                   datapath.id, inPort, etherFrame.src,
                                   etherFrame.dst, ip_packet.src, ip_packet.dst, ip_packet.proto)
+                if not ip_packet.dst == self.OUTER_IP:
+                    self.logger.debug("Destination ip of packet:%s is wrong, dropping", ip_packet.dst)
+                    return
 
                 if ip_packet.proto == 1:  # ICMP
                     icmp_packet = packet.get_protocol(icmp.icmp)
@@ -256,10 +295,11 @@ class SimpleSwitch(app_manager.RyuApp):
 
         if arpPacket.opcode == 1:
             dst_ip = arpPacket.dst_ip
-            if (datapath.id == SWITCH3_DPID and dst_ip == OUTER_IP )\
-                    or(datapath.id == SWITCH1_DPID and dst_ip in ( SWITCH_S1_H1_IP, SWITCH_S1_H2_IP)) \
-                    or (datapath.id == SWITCH2_DPID and dst_ip in (SWITCH_S2_H1_IP, SWITCH_S2_H2_IP) ):
-                    self.send_arp(datapath, 2, datapath.ports[inPort].hw_addr, arpPacket.dst_ip, etherFrame.src, arpPacket.src_ip, inPort)
+            if (datapath.id == SWITCH3_DPID and dst_ip == self.OUTER_IP) \
+                    or (datapath.id == SWITCH1_DPID and dst_ip in (SWITCH_S1_H1_IP, SWITCH_S1_H2_IP)) \
+                    or (datapath.id == SWITCH2_DPID and dst_ip in (SWITCH_S2_H1_IP, SWITCH_S2_H2_IP)):
+                self.send_arp(datapath, 2, datapath.ports[inPort].hw_addr, arpPacket.dst_ip, etherFrame.src,
+                              arpPacket.src_ip, inPort)
             else:
                 self.logger.error("Unexpected ARP request from dpid %s dst_ip %s", datapath.id, dst_ip)
         elif arpPacket.opcode == 2:
@@ -293,7 +333,6 @@ class SimpleSwitch(app_manager.RyuApp):
         elif self.s3_group_created is False:
             self.logger.debug("S3 group is not yet created")
             return
-
 
         parser = datapath.ofproto_parser
 
@@ -349,7 +388,6 @@ class SimpleSwitch(app_manager.RyuApp):
         req = parser.OFPGroupMod(datapath, action_type, ofproto.OFPGT_SELECT, GROUP_ID_S3, buckets)
         datapath.send_msg(req)
 
-
     def pass_tcp(self, message, tcp_header, ip_header, ethernet_header):
         datapath = message.datapath
         in_port = message.match['in_port']
@@ -372,7 +410,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
             dst_actions = [
                 parser.OFPActionSetField(eth_dst=ethernet_header.src),
-                parser.OFPActionSetField(ipv4_src=OUTER_IP),
+                parser.OFPActionSetField(ipv4_src=self.OUTER_IP),
                 parser.OFPActionSetField(ipv4_dst=ip_addr),
                 parser.OFPActionOutput(in_port)
             ]
@@ -381,27 +419,30 @@ class SimpleSwitch(app_manager.RyuApp):
                           dst_actions,
                           {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S1_H1_IP,
-                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S2_H1_IP,
-                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
 
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S1_H2_IP,
-                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
             self.add_flow(datapath,
                           dst_actions,
                           {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
                            'ipv4_dst': SWITCH_S2_H2_IP,
-                           'tcp_dst': tcp_src} , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
 
             self.send_message_to_table(datapath, in_port, message)
         else:
             self.logger.error("Error: unexpected tcp pass from one of inner ports: %s", in_port)
+
+    def change_public_ip(self, new_public_ip):
+        self.OUTER_IP = new_public_ip
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def _port_status_handler(self, ev):
@@ -534,7 +575,7 @@ class SimpleSwitch(app_manager.RyuApp):
         elif datapath.id == SWITCH1_DPID:
             self.paths_state[SWITCH_S1_H1_IP].switch = True
             self.paths_state[SWITCH_S1_H2_IP].switch = True
-            
+
             if switch.ports[PORT_S1_H1]._state is 0:
                 self.paths_state[SWITCH_S1_H1_IP].host_interface = True
             else:
