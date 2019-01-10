@@ -6,12 +6,13 @@ import time
 
 http_server = sys.argv[1]
 client_no = sys.argv[2]
-number_of_tests = 20
+number_of_tests = -1
 log_name='log_{0}.txt'.format(client_no)
-log = open(log_name,'a')
-
-for x in range(number_of_tests):
-	
+log = open(log_name,'w')
+x = number_of_tests
+while(x!=0):
+#for x in range(number_of_tests):
+	x-=1	
 #	cmd = raw_input('input command (ex. GET index.html')
 #	cmd = cmd.split()
 #	if cmd[0] == 'exit':
@@ -26,7 +27,7 @@ for x in range(number_of_tests):
 	conn.close()
 
 	data_received = rsp.read()
-	print 'nr({0}/{4}) {1} {2} {3}'.format(x,rsp.status,rsp.reason,data_received,number_of_tests)
+	print 'nr({0}/{4}) {1} {2} {3}'.format(number_of_tests-x,rsp.status,rsp.reason,data_received,number_of_tests)
 	log.write('{0}. time:{1} status:{2} reason:{3}\n'.format(x,stopTime-startTime,rsp.status,rsp.reason))
 log.close()
 
