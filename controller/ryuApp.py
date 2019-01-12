@@ -83,6 +83,7 @@ ICMP = icmp.icmp.__name__
 DEFAULT_TTL = 64
 PRIORITY_FLOW_MISS_ENTRY = 1
 FLOW_PRIORITY_LOW = 0x10
+OUT_FLOW_PRIORITY = 0x20
 
 OUTFLOW_IDLE_TIMEOUT = 10  # 0 means infinite
 
@@ -96,12 +97,13 @@ class PathState:
 switch_app_name = 'simple_switch_api_app'
 rest_url = '/change_public_address'
 rest_password = 'asdf'
-
+S3_MAX_FREE_FLOWS = 800
 
 class TopologyAPI(ControllerBase):
     def __init__(self, req, link, data, **config):
         super(TopologyAPI, self).__init__(req, link, data, **config)
         self.app = data[switch_app_name]
+
 
     @route('simpleswitch', rest_url, methods=['POST'])
     def _websocket_handler(self, req, **kwargs):
@@ -120,6 +122,11 @@ class TopologyAPI(ControllerBase):
 
         return Response(status=200)
 
+class ManualOutflowInfo:
+    def __init__(self, ip, port, ethernet_dst):
+        self.ip = ip
+        self.port = port
+        self.ethernet_dst = ethernet_dst
 
 class SimpleSwitch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -139,6 +146,8 @@ class SimpleSwitch(app_manager.RyuApp):
 
         wsgi = kwargs['wsgi']
         wsgi.register(TopologyAPI, {switch_app_name: self})
+        self.S3FreeFlows = S3_MAX_FREE_FLOWS
+        self.tcp_port_to_ip = {}
 
     def send_message_to_table(sel, datapath, in_port, message):
         parser = datapath.ofproto_parser
@@ -198,7 +207,7 @@ class SimpleSwitch(app_manager.RyuApp):
         packet = Packet(msg.data)
         etherFrame = packet.get_protocol(ethernet.ethernet)
 
-        self.logger.debug("Packet in!: %s %s %s %s", datapath.id, inPort, etherFrame.src, etherFrame.dst)
+        #self.logger.debug("Packet in!: %s %s %s %s", datapath.id, inPort, etherFrame.src, etherFrame.dst)
         if datapath.id == SWITCH3_DPID:
             if etherFrame.ethertype == ether.ETH_TYPE_ARP:
                 self.logger.debug("ARP Switch3: Recieved at switch %s port %s ESrc %s EDst %s ARP", datapath.id, inPort,
@@ -207,12 +216,9 @@ class SimpleSwitch(app_manager.RyuApp):
                 return 0
             elif etherFrame.ethertype == ether.ETH_TYPE_IP:
                 ip_packet = packet.get_protocol(ipv4.ipv4)
-                self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s IP ISrc %s IDst %s Proto %s",
-                                  datapath.id, inPort, etherFrame.src,
-                                  etherFrame.dst, ip_packet.src, ip_packet.dst, ip_packet.proto)
-                if not ip_packet.dst == self.OUTER_IP:
-                    self.logger.debug("Destination ip of packet:%s is wrong, dropping", ip_packet.dst)
-                    return
+                #self.logger.debug("Recieved at switch %s port %s ESrc %s EDst %s IP ISrc %s IDst %s Proto %s",
+                                 # datapath.id, inPort, etherFrame.src,
+                                  #etherFrame.dst, ip_packet.src, ip_packet.dst, ip_packet.proto)
 
                 if ip_packet.proto == 1:  # ICMP
                     icmp_packet = packet.get_protocol(icmp.icmp)
@@ -395,51 +401,67 @@ class SimpleSwitch(app_manager.RyuApp):
         ofproto = datapath.ofproto
 
         tcp_src = tcp_header.src_port
+        tcp_dst = tcp_header.dst_port
 
-        self.logger.debug("TCP PORT IS %s", tcp_header.src_port)
+        #self.logger.debug("TCP PORT IS %s", tcp_header.src_port)
 
         if in_port in OUTER_PORTS:  # from outer space
+            if not ip_header.dst == self.OUTER_IP:
+                self.logger.debug("Destination ip of packet:%s is wrong, dropping", ip_header.dst)
+                return
             ip_addr = ip_header.src
 
-            self.add_flow(datapath,
-                          [parser.OFPActionGroup(GROUP_ID_S3)],
-                          {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                           'ipv4_src': ip_addr,
-                           'tcp_src': tcp_src}
-                          , idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+            if self.S3FreeFlows >= 10:
+                self.add_flow(datapath,
+                              [parser.OFPActionGroup(GROUP_ID_S3)],
+                              {'in_port': in_port, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                               'ipv4_src': ip_addr,
+                               'tcp_src': tcp_src}
+                              , idle_timeout=OUTFLOW_IDLE_TIMEOUT, priority=OUT_FLOW_PRIORITY+1)
 
-            dst_actions = [
-                parser.OFPActionSetField(eth_dst=ethernet_header.src),
-                parser.OFPActionSetField(ipv4_src=self.OUTER_IP),
-                parser.OFPActionSetField(ipv4_dst=ip_addr),
-                parser.OFPActionOutput(in_port)
-            ]
+                dst_actions = [
+                    parser.OFPActionSetField(eth_dst=ethernet_header.src),
+                    parser.OFPActionSetField(ipv4_src=self.OUTER_IP),
+                    parser.OFPActionSetField(ipv4_dst=ip_addr),
+                    parser.OFPActionOutput(in_port)
+                ]
 
-            self.add_flow(datapath,
-                          dst_actions,
-                          {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                           'ipv4_dst': SWITCH_S1_H1_IP,
-                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
-            self.add_flow(datapath,
-                          dst_actions,
-                          {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                           'ipv4_dst': SWITCH_S2_H1_IP,
-                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
+                self.add_flow(datapath,
+                              dst_actions,
+                              {'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
+                               'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT, priority=OUT_FLOW_PRIORITY)
 
-            self.add_flow(datapath,
-                          dst_actions,
-                          {'in_port': PORT_S3_S1, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                           'ipv4_dst': SWITCH_S1_H2_IP,
-                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
-            self.add_flow(datapath,
-                          dst_actions,
-                          {'in_port': PORT_S3_S2, 'eth_type': ether.ETH_TYPE_IP, 'ip_proto': inet.IPPROTO_TCP,
-                           'ipv4_dst': SWITCH_S2_H2_IP,
-                           'tcp_dst': tcp_src}, idle_timeout=OUTFLOW_IDLE_TIMEOUT)
-
-            self.send_message_to_table(datapath, in_port, message)
+                self.send_message_to_table(datapath, in_port, message)
+                self.S3FreeFlows -= 2
+            else:
+                self.logger.debug("Manual routing, free count %s", self.S3FreeFlows)
+                self.tcp_port_to_ip[tcp_src] = ManualOutflowInfo(ip=ip_addr, port=in_port, ethernet_dst=ethernet_header.src)
+                actions = [parser.OFPActionGroup(GROUP_ID_S3)]
+                data = None
+                # Check the buffer_id and if needed pass the whole message down
+                if message.buffer_id == 0xffffffff:
+                    data = message.data
+                out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,in_port=in_port,actions=actions)
+                datapath.send_msg(out)
         else:
-            self.logger.error("Error: unexpected tcp pass from one of inner ports: %s", in_port)
+            if tcp_dst not in self.tcp_port_to_ip:
+                self.logger.error("Error: unexpected tcp pass from one of inner ports: %s", in_port)
+                return
+            else:
+                info = self.tcp_port_to_ip[tcp_dst]
+                dst_actions = [
+                    parser.OFPActionSetField(eth_dst=info.ethernet_dst),
+                    parser.OFPActionSetField(ipv4_src=self.OUTER_IP),
+                    parser.OFPActionSetField(ipv4_dst=info.ip),
+                    parser.OFPActionOutput(info.port)
+                ]
+                data = None
+                # Check the buffer_id and if needed pass the whole message down
+                if message.buffer_id == 0xffffffff:
+                    data = message.data
+                out = parser.OFPPacketOut(datapath=datapath, buffer_id=message.buffer_id, data=data,in_port=in_port,actions=dst_actions)
+                datapath.send_msg(out)
+
 
     def change_public_ip(self, new_public_ip):
         self.OUTER_IP = new_public_ip
@@ -524,6 +546,12 @@ class SimpleSwitch(app_manager.RyuApp):
                       {'eth_type': ether.ETH_TYPE_ARP})
 
         if datapath.id == SWITCH3_DPID:
+
+            self.S3FreeFlows = S3_MAX_FREE_FLOWS
+            self.paths_state = {SWITCH_S1_H1_IP: PathState(True, False), SWITCH_S1_H2_IP: PathState(True, False),
+                                SWITCH_S2_H1_IP: PathState(True, False), SWITCH_S2_H2_IP: PathState(True, False)}
+            self.tcp_port_to_ip = {}
+
             self.s3_datapath = datapath
             # all ping to switch3
             self.add_flow(datapath, [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)],
@@ -534,7 +562,7 @@ class SimpleSwitch(app_manager.RyuApp):
 
             # add s3 routing group
             self.message_s3_group(datapath, ofproto.OFPGC_ADD)
-            # self.del_flow(self.s3_datapath, {})
+
         elif datapath.id == SWITCH2_DPID:
             self.paths_state[SWITCH_S2_H1_IP].switch = True
             self.paths_state[SWITCH_S2_H2_IP].switch = True
@@ -621,3 +649,32 @@ class SimpleSwitch(app_manager.RyuApp):
             self.paths_state[SWITCH_S2_H2_IP].switch = False
         dp = self.dpset.get(SWITCH3_DPID)
         self.message_s3_group(dp, dp.ofproto.OFPGC_MODIFY)
+
+    @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
+    def flow_removed_handler(self, ev):
+        msg = ev.msg
+        dp = msg.datapath
+        ofp = dp.ofproto
+
+        if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+            reason = 'IDLE TIMEOUT'
+        elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
+            reason = 'HARD TIMEOUT'
+        elif msg.reason == ofp.OFPRR_DELETE:
+            reason = 'DELETE'
+        elif msg.reason == ofp.OFPRR_GROUP_DELETE:
+            reason = 'GROUP DELETE'
+        else:
+            reason = 'unknown'
+
+        self.logger.debug('OFPFlowRemoved received: '
+                          'cookie=%d priority=%d reason=%s table_id=%d '
+                          'duration_sec=%d duration_nsec=%d '
+                          'idle_timeout=%d hard_timeout=%d '
+                          'packet_count=%d byte_count=%d match.fields=%s',
+                          msg.cookie, msg.priority, reason, msg.table_id,
+                          msg.duration_sec, msg.duration_nsec,
+                          msg.idle_timeout, msg.hard_timeout,
+                          msg.packet_count, msg.byte_count, msg.match)
+        if dp.id == SWITCH3_DPID:
+            self.S3FreeFlows += 1
